@@ -1,0 +1,1 @@
+/usr/bin/cc -g   CMakeFiles/PIP1Servidor.dir/main.c.o  -o PIP1Servidor 

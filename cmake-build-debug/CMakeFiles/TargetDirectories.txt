@@ -1,0 +1,3 @@
+/home/thisisyj/CLionProjects/PIP1Servidor/cmake-build-debug/CMakeFiles/rebuild_cache.dir
+/home/thisisyj/CLionProjects/PIP1Servidor/cmake-build-debug/CMakeFiles/edit_cache.dir
+/home/thisisyj/CLionProjects/PIP1Servidor/cmake-build-debug/CMakeFiles/PIP1Servidor.dir
