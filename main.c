@@ -295,6 +295,7 @@ void Chat(void *accept_sd, void *username, void *File) {
     char *FileRoute;
     char registry[TAM_BUFFER];
     int found = 0, done = 0;
+    memset(buffermessage, 0, TAM_BUFFER);
     SendToSocket(&*(int *) accept_sd, "Nombre del usuario a chatear: ");
     RecievFSocket(&*(int *) accept_sd, &buffermessage);
     FileRoute = (char *) malloc(strlen(username) + 1);
@@ -303,6 +304,7 @@ void Chat(void *accept_sd, void *username, void *File) {
     File = fopen(FileRoute, "r");
     while (fgets(registry, sizeof(registry), File)) {
         char *results = strtok(registry, " ");
+        printf("Resulados %s\n", results);
         if (strcmp(results, buffermessage) == 0) {
             found = 1;
             break;
@@ -311,40 +313,35 @@ void Chat(void *accept_sd, void *username, void *File) {
     fclose(File);
     free(FileRoute);
     if (found == 0) {
-        char *message;
-        message = (char *) malloc(TAM_BUFFER);
-        strcpy(message, "Debes ser amigo de ");
-        strcat(message, username);
-        strcat(message, " para poder chatear");
-        SendToSocket(&*(int *) accept_sd, message);
-        free(message);
+        SendToSocket(&*(int *) accept_sd, "Usuario no encontrado en tu lista de amigos");
     } else {
         pthread_t RecevMSGT, SendMSGT;
         struct args *ChatStruct = (struct args *) malloc(sizeof(struct args));
         ChatStruct->accept_sd = *(int *) accept_sd;
         ChatStruct->username = username;
         ChatStruct->contact = buffermessage;
-        /*if (pthread_create(&RecevMSGT, NULL, RecevMSG, (void *) ChatStruct) != 0) {
-            printf("Algo malo ocurrio 2");
-            close(*(int *) accept_sd);
-        }*/
         if (pthread_create(&SendMSGT, NULL, SendMSG, (void *) ChatStruct) != 0) {
             printf("Algo malo ocurrio 2");
             close(*(int *) accept_sd);
         }
-//        pthread_join(RecevMSGT, NULL);
+        if (pthread_create(&RecevMSGT, NULL, RecevMSG, (void *) ChatStruct) != 0) {
+            printf("Algo malo ocurrio 2");
+            close(*(int *) accept_sd);
+        }
+        pthread_join(SendMSGT, NULL);
+        pthread_join(RecevMSGT, NULL);
         while (!done);
     }
 }
 
 void *RecevMSG(void *args) {
-    int n;
     char *buffer;
     buffer = (char *) malloc(TAM_BUFFER);
     while (1) {
+        memset(buffer, 0, TAM_BUFFER);
         ReadPipe(((struct args *) args)->username, ((struct args *) args)->contact, buffer);
 //        SendToSocket(&((struct args *) args)->accept_sd, buffer);
-        printf("%s:%s", ((struct args *) args)->contact, buffer);
+        printf("%s\n", buffer);
     }
     pthread_exit(NULL);
 }
@@ -360,7 +357,7 @@ void ReadPipe(void *user, void *contact, void *message) {
     fd = open(FifoName, O_RDONLY | O_NONBLOCK);
     while (n <= 0) {
         n = read(fd, message, TAM_BUFFER);
-        sleep(1);
+        sleep(1 / 2);
     }
     close(fd);
     free(FifoName);
@@ -376,8 +373,11 @@ void *SendMSG(void *args) {
     buffer = (char *) malloc(TAM_BUFFER);
     while (1) {
         RecievFSocket(&((struct args *) args)->accept_sd, buffer);
-//        WritePipe(((struct args *) args)->username, ((struct args *) args)->contact, buffer);
-        printf("%s:%s", ((struct args *) args)->username, buffer);
+        memset(message, 0, TAM_BUFFER);
+        strcpy(message, ((struct args *) args)->username);
+        strcat(message, ":");
+        strcat(message, buffer);
+        WritePipe(((struct args *) args)->username, ((struct args *) args)->contact, message);
     }
     pthread_exit(NULL);
 }
@@ -399,6 +399,7 @@ void AddContact(void *accept_sd, void *username, void *File) {
     char *FileRoute;
     char *Fifo1;
     char *Fifo2;
+    memset(buffer, 0, TAM_BUFFER);
     SendToSocket(&*(int *) accept_sd, "Nombre del usuario a agregar: ");
     RecievFSocket(&*(int *) accept_sd, &buffer);
     Fifo1 = (char *) malloc(strlen(username) + strlen(buffer) + 1);
@@ -411,7 +412,7 @@ void AddContact(void *accept_sd, void *username, void *File) {
     strcpy(FileRoute, username);
     strcat(FileRoute, ".txt");
     File = fopen(FileRoute, "a");
-    fprintf(File, "%s %s\n", buffer, Fifo1);
+    fprintf(File, "%s \n", buffer);
     fclose(File);
     mkfifo(Fifo1, 0666);
     //Esto se va a utlizar para las solicitudes pendientes
@@ -420,7 +421,7 @@ void AddContact(void *accept_sd, void *username, void *File) {
     strcpy(FileRoute, buffer);
     strcat(FileRoute, ".txt");
     File = fopen(FileRoute, "a");
-    fprintf(File, "%s %s\n", (char *) username, Fifo2);
+    fprintf(File, "%s \n", (char *) username);
     fclose(File);
     mkfifo(Fifo2, 0666);
     free(Fifo1);
