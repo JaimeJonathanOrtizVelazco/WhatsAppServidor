@@ -43,6 +43,10 @@ void AddContact(void *accept_sd, void *username, void *File);
 
 void Chat(void *accept_sd, void *username, void *File);
 
+void WritePipe(void *user, void *contact, void *message);
+
+void ReadPipe(void *user, void *contact, void *message);
+
 void SendToSocket(void *accept_sd, void *bufferMessage);
 
 void RecievFSocket(void *accept_sd, void *variable);
@@ -319,8 +323,8 @@ void Chat(void *accept_sd, void *username, void *File) {
         struct args *ChatStruct = (struct args *) malloc(sizeof(struct args));
         ChatStruct->accept_sd = *(int *) accept_sd;
         ChatStruct->username = username;
-        ChatStruct->contact = buffermessage;/*
-        if (pthread_create(&RecevMSGT, NULL, RecevMSG, (void *) ChatStruct) != 0) {
+        ChatStruct->contact = buffermessage;
+        /*if (pthread_create(&RecevMSGT, NULL, RecevMSG, (void *) ChatStruct) != 0) {
             printf("Algo malo ocurrio 2");
             close(*(int *) accept_sd);
         }*/
@@ -334,44 +338,60 @@ void Chat(void *accept_sd, void *username, void *File) {
 }
 
 void *RecevMSG(void *args) {
-    int fd, n;
+    int n;
     char *buffer;
-    char *FifoName;
     buffer = (char *) malloc(TAM_BUFFER);
-    FifoName = (char *) malloc(strlen(((struct args *) args)->contact) + strlen(((struct args *) args)->username) + 1);
-    strcpy(FifoName, ((struct args *) args)->contact);
-    strcat(FifoName, ((struct args *) args)->username);
-    fd = open(FifoName, O_RDONLY);
     while (1) {
-        while (read(fd, buffer, TAM_BUFFER) > 0)
-            SendToSocket(&((struct args *) args)->accept_sd, buffer);
+        ReadPipe(((struct args *) args)->username, ((struct args *) args)->contact, buffer);
+//        SendToSocket(&((struct args *) args)->accept_sd, buffer);
+        printf("%s:%s", ((struct args *) args)->contact, buffer);
     }
-    close(fd);
     pthread_exit(NULL);
 }
 
-void *SendMSG(void *args) {
+void ReadPipe(void *user, void *contact, void *message) {
+    int n = 0;
+    memset(message, 0, sizeof(message));
     int fd;
-    char *message;
     char *FifoName;
+    FifoName = (char *) malloc(strlen(contact) + strlen(user) + 1);
+    strcpy(FifoName, contact);
+    strcat(FifoName, user);
+    fd = open(FifoName, O_RDONLY | O_NONBLOCK);
+    while (n <= 0) {
+        n = read(fd, message, TAM_BUFFER);
+        sleep(1);
+    }
+    close(fd);
+    free(FifoName);
+}
 
-    FifoName = (char *) malloc(strlen(((struct args *) args)->contact) + strlen(((struct args *) args)->username) + 1);
-    strcpy(FifoName, ((struct args *) args)->username);
-    strcat(FifoName, ((struct args *) args)->contact);
+void *SendMSG(void *args) {
+    char *message;
     message = (char *) malloc(TAM_BUFFER);
     strcpy(message, ((struct args *) args)->username);
     strcat(message, " se ha unido a la conversacion");
+    WritePipe(((struct args *) args)->username, ((struct args *) args)->contact, message);
     char *buffer;
     buffer = (char *) malloc(TAM_BUFFER);
-    fd = open(FifoName, O_NONBLOCK);
-    write(fd, message, strlen(message));
-    close(fd);
     while (1) {
         RecievFSocket(&((struct args *) args)->accept_sd, buffer);
-        printf("%s\n",buffer);
+//        WritePipe(((struct args *) args)->username, ((struct args *) args)->contact, buffer);
+        printf("%s:%s", ((struct args *) args)->username, buffer);
     }
-    close(fd);
     pthread_exit(NULL);
+}
+
+void WritePipe(void *user, void *contact, void *message) {
+    int fd;
+    char *FifoName;
+    FifoName = (char *) malloc(strlen(user) + strlen(contact) + 1);
+    strcpy(FifoName, user);
+    strcat(FifoName, contact);
+    fd = open(FifoName, O_WRONLY | O_NONBLOCK);
+    write(fd, message, strlen(message));
+    close(fd);
+    free(FifoName);
 }
 
 void AddContact(void *accept_sd, void *username, void *File) {
