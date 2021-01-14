@@ -37,7 +37,7 @@ void LoggedUserMenu(void *accept_sd, void *username, void *File);
 
 void ContactMenu(void *accept_sd, void *username, void *File);
 
-int GetContactList(void *accept_sd, void *username, void *File);
+void GetContactList(void *accept_sd, void *username, void *File);
 
 void AddContact(void *accept_sd, void *username, void *File);
 
@@ -215,8 +215,9 @@ void LoggedUserMenu(void *accept_sd, void *username, void *File) {
     char buffermessage[TAM_BUFFER];
     char welcome[TAM_BUFFER] = "Bienvenido ";
     strcat(welcome, (char *) username);
-    int out = 0, exit = 0;
+    int out = 0;
     while (out == 0) {
+        int exit = 0;
         SendToSocket(&*(int *) accept_sd, welcome);
         SendToSocket(&*(int *) accept_sd, "1)Mis contactos");
         SendToSocket(&*(int *) accept_sd, "2)Solicitudes de amistad pendientes");
@@ -239,6 +240,7 @@ void LoggedUserMenu(void *accept_sd, void *username, void *File) {
                 case 4:
                 case 5:
                     out = 1;
+                    exit = 1;
                     break;
                 default:
                     SendToSocket(&*(int *) accept_sd, "Selecciona un opcion correcta");
@@ -249,13 +251,11 @@ void LoggedUserMenu(void *accept_sd, void *username, void *File) {
 }
 
 void ContactMenu(void *accept_sd, void *username, void *File) {
-    int Total = 0;
     char buffermessage[TAM_BUFFER];
-    int out = 0, exit = 0;
+    int out = 0;
     while (out == 0) {
-        Total = GetContactList(&*(int *) accept_sd, username, File);
-        sprintf(buffermessage, "\tTotal de contactos: %d", Total);
-        SendToSocket(&*(int *) accept_sd, buffermessage);
+        int exit = 0;
+        GetContactList(&*(int *) accept_sd, username, File);
         SendToSocket(&*(int *) accept_sd, "1)Iniciar conversacion\t2)Agregar contacto\t3)Eliminar Contacto\t4)Salir");
         while (exit == 0) {
             RecievFSocket(&*(int *) accept_sd, &buffermessage);
@@ -273,8 +273,10 @@ void ContactMenu(void *accept_sd, void *username, void *File) {
                     /*eliminar();
                      * out = 1;
                     break;*/
+                    break;
                 case 4:
                     out = 1;
+                    exit = 1;
                     break;
                 default:
                     SendToSocket(&*(int *) accept_sd, "Selecciona un opcion correcta");
@@ -286,53 +288,63 @@ void ContactMenu(void *accept_sd, void *username, void *File) {
 
 void Chat(void *accept_sd, void *username, void *File) {
     char buffermessage[TAM_BUFFER];
-    char FileRoute[TAM_BUFFER];
+    char *FileRoute;
     char registry[TAM_BUFFER];
-    int found = 0, end = 0;
-    SendToSocket(&*(int *) accept_sd, "Nombre del usuario a chatear:");
+    int found = 0, done = 0;
+    SendToSocket(&*(int *) accept_sd, "Nombre del usuario a chatear: ");
     RecievFSocket(&*(int *) accept_sd, &buffermessage);
-    strncpy(FileRoute, username, strlen(username) + 1);
+    FileRoute = (char *) malloc(strlen(username) + 1);
+    strcpy(FileRoute, username);
     strcat(FileRoute, ".txt");
-    printf("%s\n", FileRoute);
     File = fopen(FileRoute, "r");
     while (fgets(registry, sizeof(registry), File)) {
         char *results = strtok(registry, " ");
-        if (strcmp(results, buffermessage) == 0)
+        if (strcmp(results, buffermessage) == 0) {
             found = 1;
+            break;
+        }
     }
+    fclose(File);
+    free(FileRoute);
     if (found == 0) {
-        char *message = "Debes ser amigo de ";
-        strncat(message, buffermessage, strlen(buffermessage) + 1);
-        strncat(message, " para poder chatear", 20);
+        char *message;
+        message = (char *) malloc(TAM_BUFFER);
+        strcpy(message, "Debes ser amigo de ");
+        strcat(message, username);
+        strcat(message, " para poder chatear");
         SendToSocket(&*(int *) accept_sd, message);
+        free(message);
     } else {
         pthread_t RecevMSGT, SendMSGT;
         struct args *ChatStruct = (struct args *) malloc(sizeof(struct args));
         ChatStruct->accept_sd = *(int *) accept_sd;
         ChatStruct->username = username;
-        ChatStruct->contact = buffermessage;
+        ChatStruct->contact = buffermessage;/*
         if (pthread_create(&RecevMSGT, NULL, RecevMSG, (void *) ChatStruct) != 0) {
             printf("Algo malo ocurrio 2");
             close(*(int *) accept_sd);
-        }
+        }*/
         if (pthread_create(&SendMSGT, NULL, SendMSG, (void *) ChatStruct) != 0) {
             printf("Algo malo ocurrio 2");
             close(*(int *) accept_sd);
         }
-        while (!end);
+//        pthread_join(RecevMSGT, NULL);
+        while (!done);
     }
 }
 
 void *RecevMSG(void *args) {
-    int fd;
-    char FifoName[TAM_BUFFER];
-    char buffer[TAM_BUFFER];
-    strncpy(FifoName, ((struct args *) args)->contact, strlen(((struct args *) args)->contact) + 1);
-    strncat(FifoName, ((struct args *) args)->username, strlen(((struct args *) args)->username) + 1);
+    int fd, n;
+    char *buffer;
+    char *FifoName;
+    buffer = (char *) malloc(TAM_BUFFER);
+    FifoName = (char *) malloc(strlen(((struct args *) args)->contact) + strlen(((struct args *) args)->username) + 1);
+    strcpy(FifoName, ((struct args *) args)->contact);
+    strcat(FifoName, ((struct args *) args)->username);
     fd = open(FifoName, O_RDONLY);
     while (1) {
-        read(fd, buffer, TAM_BUFFER);
-        SendToSocket(&((struct args *) args)->accept_sd, buffer);
+        while (read(fd, buffer, TAM_BUFFER) > 0)
+            SendToSocket(&((struct args *) args)->accept_sd, buffer);
     }
     close(fd);
     pthread_exit(NULL);
@@ -340,65 +352,77 @@ void *RecevMSG(void *args) {
 
 void *SendMSG(void *args) {
     int fd;
-    char FifoName[TAM_BUFFER];
-    char buffer[TAM_BUFFER];
-    strncpy(FifoName, ((struct args *) args)->username, strlen(((struct args *) args)->username) + 1);
-    strncat(FifoName, ((struct args *) args)->contact, strlen(((struct args *) args)->contact) + 1);
-    fd = open(FifoName, O_WRONLY);
+    char *message;
+    char *FifoName;
+
+    FifoName = (char *) malloc(strlen(((struct args *) args)->contact) + strlen(((struct args *) args)->username) + 1);
+    strcpy(FifoName, ((struct args *) args)->username);
+    strcat(FifoName, ((struct args *) args)->contact);
+    message = (char *) malloc(TAM_BUFFER);
+    strcpy(message, ((struct args *) args)->username);
+    strcat(message, " se ha unido a la conversacion");
+    char *buffer;
+    buffer = (char *) malloc(TAM_BUFFER);
+    fd = open(FifoName, O_NONBLOCK);
+    write(fd, message, strlen(message));
+    close(fd);
     while (1) {
-        RecievFSocket(&((struct args *) args)->accept_sd, &buffer);
-        write(fd, buffer, strlen(buffer));
-        SendToSocket(&((struct args *) args)->accept_sd, buffer);
+        RecievFSocket(&((struct args *) args)->accept_sd, buffer);
+        printf("%s\n",buffer);
     }
     close(fd);
     pthread_exit(NULL);
 }
 
 void AddContact(void *accept_sd, void *username, void *File) {
-    char buffermessage[TAM_BUFFER];
-    char FileRoute[TAM_BUFFER];
-    char Fifo[TAM_BUFFER];
-    SendToSocket(&*(int *) accept_sd, "Nombre del usuario a agregar:");
-    RecievFSocket(&*(int *) accept_sd, &buffermessage);
-    strncpy(FileRoute, username, strlen(username) + 1);
+    char buffer[TAM_BUFFER];
+    char *FileRoute;
+    char *Fifo1;
+    char *Fifo2;
+    SendToSocket(&*(int *) accept_sd, "Nombre del usuario a agregar: ");
+    RecievFSocket(&*(int *) accept_sd, &buffer);
+    Fifo1 = (char *) malloc(strlen(username) + strlen(buffer) + 1);
+    strcpy(Fifo1, username);
+    strcat(Fifo1, buffer);
+    Fifo2 = (char *) malloc(strlen(username) + strlen(buffer) + 1);
+    strcpy(Fifo2, buffer);
+    strcat(Fifo2, username);
+    FileRoute = (char *) malloc(strlen(username) + 5);
+    strcpy(FileRoute, username);
     strcat(FileRoute, ".txt");
-    strncpy(Fifo, username, strlen(username) + 1);
-    strcat(Fifo, buffermessage);
     File = fopen(FileRoute, "a");
-    fprintf(File, "%s %s\n", buffermessage, Fifo);
+    fprintf(File, "%s %s\n", buffer, Fifo1);
     fclose(File);
-    mkfifo(Fifo, 0666);
+    mkfifo(Fifo1, 0666);
     //Esto se va a utlizar para las solicitudes pendientes
-    bzero(FileRoute, TAM_BUFFER);
-    bzero(Fifo, TAM_BUFFER);
-    strncpy(FileRoute, buffermessage, strlen(buffermessage) + 1);
+    free(FileRoute);
+    FileRoute = (char *) malloc(strlen(buffer) + 5);
+    strcpy(FileRoute, buffer);
     strcat(FileRoute, ".txt");
-    strcpy(Fifo, buffermessage);
-    strncat(Fifo, username, strlen(username) + 1);
     File = fopen(FileRoute, "a");
-    fprintf(File, "%s %s\n", (char *) username, Fifo);
+    fprintf(File, "%s %s\n", (char *) username, Fifo2);
     fclose(File);
-    mkfifo(Fifo, 0666);
+    mkfifo(Fifo2, 0666);
+    free(Fifo1);
+    free(Fifo2);
+    free(FileRoute);
 }
 
-int GetContactList(void *accept_sd, void *username, void *File) {
-    int Total_Contacts = 0;
+void GetContactList(void *accept_sd, void *username, void *File) {
     char registry[TAM_BUFFER];
     char FileRoute[TAM_BUFFER];
-    strncpy(FileRoute, username, strlen(username) + 1);
+    strncpy(FileRoute, username, (strlen(username) + 1));
     strcat(FileRoute, ".txt");
     File = fopen(FileRoute, "r");
     while (fgets(registry, sizeof(registry), File)) {
         char *results = strtok(registry, " ");
         SendToSocket(&*(int *) accept_sd, results);
-        Total_Contacts++;
     }
     fclose(File);
-    return Total_Contacts;
 }
 
 void RecievFSocket(void *accept_sd, void *variable) {
-    bzero(variable, sizeof(variable));
+    memset(variable, 0, sizeof(variable));
     if ((recv(*(int *) accept_sd, variable, TAM_BUFFER, 0)) < 0) {
         close(*(int *) accept_sd);
         pthread_exit(NULL);
@@ -407,7 +431,7 @@ void RecievFSocket(void *accept_sd, void *variable) {
 
 void SendToSocket(void *accept_sd, void *bufferMessage) {
     char ok[TAM_BUFFER];
-    int lgData;
+    int lgData = 0;
     while (1) {
         if ((send(*(int *) accept_sd, "SEND", strlen((char *) bufferMessage), 0)) < 0) {
             close(*(int *) accept_sd);
